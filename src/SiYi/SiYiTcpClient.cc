@@ -29,6 +29,12 @@ SiYiTcpClient::~SiYiTcpClient()
     }
 }
 
+void SiYiTcpClient::setIpPort(const QString &ip, quint16 port)
+{
+    ip_ = ip;
+    port_ = port;
+}
+
 void SiYiTcpClient::sendMessage(const QByteArray &msg)
 {
     if (isRunning()) {

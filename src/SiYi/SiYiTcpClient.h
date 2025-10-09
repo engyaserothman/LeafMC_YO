@@ -17,6 +17,7 @@ public:
     SiYiTcpClient(const QString ip, quint16 port, QObject *parent = Q_NULLPTR);
     ~SiYiTcpClient();
 
+    void setIpPort(const QString& ip, quint16 port);
     void sendMessage(const QByteArray &msg);
     void sendmessageUdp(const QByteArray &msg);
     Q_INVOKABLE virtual void analyzeIp(QString videoUrl);

@@ -9,117 +9,97 @@ SiYi *SiYi::instance_ = Q_NULLPTR;
 SiYi::SiYi(QObject *parent)
     : QObject{parent}
 {
-    // Use the same QSettings pattern as Joystick instead of custom config.ini
-
-
     const QString defaultIp = QStringLiteral("192.168.144.25");
-    const quint16 defaultTransmitterPort = 5864;
-    const quint16 defaultCameraPort = 37256; // per requirements
-
-    QString ip = defaultIp;
-    quint16 txPort = defaultTransmitterPort;
-    quint16 camPort = defaultCameraPort;
+    const int defaultTransmitterPort = 5864;
+    const int defaultCameraPort = 37256;
 
     QSettings settings;
     settings.beginGroup("SiYi");
 
-    if (!settings.contains("siyiGimbalIp")) {
-        settings.setValue("siyiGimbalIp", ip);
-    }
-    else {
-        ip = settings.value("siyiGimbalIp").toString();
-    }
-    if (!settings.contains("siyiTransmitterPort")) {
-        settings.setValue("siyiTransmitterPort", txPort);
-    }
-    else {
-        bool ok = false;
-        int txPortValue = settings.value("siyiTransmitterPort").toInt(&ok);
-        if (ok && txPortValue > 0 && txPortValue <= 0xffff) {
-            txPort = quint16(txPortValue);
-        }
-    }
-    if (!settings.contains("siyiCameraPort")) {
-        settings.setValue("siyiCameraPort", camPort);
-    }
-    else {
-        bool ok = false;
-        int camPortValue = settings.value("siyiCameraPort").toInt(&ok);
-        if (ok && camPortValue > 0 && camPortValue <= 0xffff) {
-            camPort = quint16(camPortValue);
-        }
-    }
+    _gimbalIp = settings.value("gimbalIp", defaultIp).toString();
+    _transmitterPort = settings.value("transmitterPort", defaultTransmitterPort).toInt();
+    _cameraPort = settings.value("cameraPort", defaultCameraPort).toInt();
 
-    
     settings.endGroup();
-    
 
-    camera_ = new SiYiCamera(ip, camPort, this);
-    // set camera's ip/port if necessary (SiYiCamera currently constructs its own SiYiTcpClient with defaults)
-    // If SiYiCamera needs custom ip/port plumbing, further changes would be needed.
-    transmitter_ = new SiYiTransmitter(ip, txPort, this);
-    connect(transmitter_, &SiYiCamera::connected, this, [=](){
-        this->isTransmitterConnected_ = true;
-        camera_->start();
-    });
-    connect(transmitter_, &SiYiCamera::disconnected, this, [=](){
-        this->isTransmitterConnected_ = false;
-        transmitter_->exit();
-    });
+    camera_ = new SiYiCamera(_gimbalIp, (quint16)_cameraPort, this);
+    transmitter_ = new SiYiTransmitter(_gimbalIp, (quint16)_transmitterPort, this);
 
-    connect(camera_, &SiYiCamera::ipChanged, this, [=](){
-        if (camera_->isRunning()) {
-            camera_->exit();
-            camera_->wait();
-        }
+    connect(transmitter_, &SiYiTransmitter::connected, this, [this](){ _updateIsConnected(true); });
+    connect(transmitter_, &SiYiTransmitter::disconnected, this, [this](){ _updateIsConnected(false); });
+    connect(camera_, &SiYiCamera::connected, this, [this](){ _updateIsConnected(true); });
+    connect(camera_, &SiYiCamera::disconnected, this, [this](){ _updateIsConnected(false); });
 
-        camera_->start();
-    });
-#if 0
-    connect(transmitter_, &SiYiCamera::ipChanged, this, [=](){
-        if (transmitter_->isRunning()) {
-            transmitter_->exit();
-            transmitter_->wait();
-        }
-
-        transmitter_->start();
-    });
-#endif
 #ifdef Q_OS_ANDROID
     isAndroid_ = true;
 #else
     isAndroid_ = false;
 #endif
+}
 
+void SiYi::setGimbalIp(const QString &ip)
+{
+    if (_gimbalIp != ip) {
+        _gimbalIp = ip;
+        QSettings settings;
+        settings.beginGroup("SiYi");
+        settings.setValue("gimbalIp", _gimbalIp);
+        settings.endGroup();
+        emit gimbalIpChanged();
+    }
+}
+
+void SiYi::setCameraPort(int port)
+{
+    if (_cameraPort != port) {
+        _cameraPort = port;
+        QSettings settings;
+        settings.beginGroup("SiYi");
+        settings.setValue("cameraPort", _cameraPort);
+        settings.endGroup();
+        emit cameraPortChanged();
+    }
+}
+
+void SiYi::setTransmitterPort(int port)
+{
+    if (_transmitterPort != port) {
+        _transmitterPort = port;
+        QSettings settings;
+        settings.beginGroup("SiYi");
+        settings.setValue("transmitterPort", _transmitterPort);
+        settings.endGroup();
+        emit transmitterPortChanged();
+    }
+}
+
+void SiYi::connectLink()
+{
+    disconnectLink();
+    camera_->setIpPort(_gimbalIp, (quint16)_cameraPort);
+    transmitter_->setIpPort(_gimbalIp, (quint16)_transmitterPort);
     transmitter_->start();
-#if 1   // 为1时，云台控制无需先连接
     camera_->start();
-#endif
 }
 
-// Add helper methods to save settings when values change (like Joystick does)
-void SiYi::setSiyiGimbalIp(const QString &ip)
+void SiYi::disconnectLink()
 {
-    QSettings settings;
-    settings.beginGroup("SiYi");
-    settings.setValue("siyiGimbalIp", ip);
-    settings.endGroup();
+    if (transmitter_->isRunning()) {
+        transmitter_->exit();
+        transmitter_->wait();
+    }
+    if (camera_->isRunning()) {
+        camera_->exit();
+        camera_->wait();
+    }
 }
 
-void SiYi::setSiyiTransmitterPort(quint16 port)
+void SiYi::_updateIsConnected(bool connected)
 {
-    QSettings settings;
-    settings.beginGroup("SiYi");
-    settings.setValue("siyiTransmitterPort", int(port));
-    settings.endGroup();
-}
-
-void SiYi::setSiyiCameraPort(quint16 port)
-{
-    QSettings settings;
-    settings.beginGroup("SiYi");
-    settings.setValue("siyiCameraPort", int(port));
-    settings.endGroup();
+    if (isTransmitterConnected_ != connected) {
+        isTransmitterConnected_ = connected;
+        emit isConnectedChanged();
+    }
 }
 
 SiYi *SiYi::instance()

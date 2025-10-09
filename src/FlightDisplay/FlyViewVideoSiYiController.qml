@@ -120,6 +120,39 @@ Rectangle {
                     }
                 }
             }
+            Image {
+                id: settingsButton
+                source: "qrc:/qmlimages/Gears.png"
+                sourceSize.width: btText.width * iconScale
+                sourceSize.height: btText.width * iconScale
+                anchors.verticalCenter: parent.verticalCenter
+                visible: expended
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        var popup = siyiSettingsPopupComponent.createObject(root)
+                        popup.open()
+                    }
+                }
+            }
+            Rectangle {
+                width: 20
+                height: 20
+                radius: 10
+                color: SiYi.isConnected ? "green" : "red"
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Button {
+                text: SiYi.isConnected ? "Disconnect" : "Connect"
+                anchors.verticalCenter: parent.verticalCenter
+                onClicked: {
+                    if (SiYi.isConnected) {
+                        SiYi.disconnectLink()
+                    } else {
+                        SiYi.connectLink()
+                    }
+                }
+            }
         }
         onDoubleClicked: {
             if (camera.isTracking) {
@@ -242,7 +275,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.leftMargin: SiYi.isAndroid ? iconLeftMargin + 4 : 150
         //anchors.topMargin: 10
-        width: controlColumn.width
+        width: controlColumn.width + settingsButton.width + 10
         height: controlColumn.height
         anchors.top: parent.top
         //visible: camera.isConnected
@@ -668,6 +701,12 @@ Rectangle {
             anchors.centerIn: parent
             sourceSize.width: btText.width * (SiYi.isAndroid ? iconScale : 2)
             sourceSize.height: btText.width * (SiYi.isAndroid ? iconScale : 2)
+        }
+    }
+
+    Component {
+        id: siyiSettingsPopupComponent
+        FlyViewVideoSiYiSettings {
         }
     }
 
