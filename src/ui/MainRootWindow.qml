@@ -107,7 +107,10 @@ ApplicationWindow {
     signal vtolTransitionToFwdFlightRequest
     signal vtolTransitionToMRFlightRequest
     signal showPreFlightChecklistIfNeeded
-
+    
+    // Leaf-specific signals
+    signal leafArmVehicleRequested
+    signal leafDisarmVehicleRequested
 
     //-------------------------------------------------------------------------
     //-- Global Scope Functions

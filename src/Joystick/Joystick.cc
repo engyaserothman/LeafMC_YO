@@ -975,10 +975,6 @@ void Joystick::_toggleVideoPaused()
 
 void Joystick::_requestLeafIdle()
 {
-    // Schedule invocation on the main (UI) thread. Prefer using the existing
-    // guided controller QML confirmAction so the same popup/slider UI is used
-    // as when clicking the GUI buttons. If the guided controller cannot be
-    // found, fall back to a simple QMessageBox confirmation.
     QMetaObject::invokeMethod(qgcApp(), [this]() {
         bool invoked = false;
         QQmlApplicationEngine* engine = qgcApp()->qmlAppEngine();
@@ -987,33 +983,13 @@ void Joystick::_requestLeafIdle()
             if (!roots.isEmpty()) {
                 QObject* rootObj = roots.first();
                 if (rootObj) {
-                    // Prefer invoking the guided controller directly so we get the
-                    // exact same FC Arm/Idle confirmation UI used by the GUI.
-                    QVariant guidedVar = rootObj->property("guidedControllerFlyView");
-                    QObject* guidedObj = guidedVar.isValid() ? guidedVar.value<QObject*>() : nullptr;
-                    if (guidedObj) {
-                        QVariant actionIdVar = guidedObj->property("actionFCArm");
-                        if (actionIdVar.isValid()) {
-                            QMetaObject::invokeMethod(guidedObj,
-                                                      "confirmAction",
-                                                      Qt::QueuedConnection,
-                                                      Q_ARG(int, actionIdVar.toInt()));
-                            invoked = true;
-                        }
-                    }
-
-                    // If guidedController isn't available or didn't handle it,
-                    // fall back to emitting the main window armVehicleRequest
-                    if (!invoked) {
-                        if (QMetaObject::invokeMethod(rootObj, "armVehicleRequest", Qt::QueuedConnection)) {
-                            invoked = true;
-                        }
+                    if (QMetaObject::invokeMethod(rootObj, "leafArmVehicleRequested", Qt::QueuedConnection)) {
+                        invoked = true;
                     }
                 }
             }
         }
         if (!invoked) {
-            // Fallback to a simple message box confirmation
             QMessageBox::StandardButton res = QMessageBox::question(nullptr,
                 tr("Confirm LEAF Idle"),
                 tr("Are you sure you want to put the LEAF into Idle state?"),
@@ -1037,7 +1013,7 @@ void Joystick::_requestLeafDisarm()
             if (!roots.isEmpty()) {
                 QObject* rootObj = roots.first();
                 if (rootObj) {
-                    if (QMetaObject::invokeMethod(rootObj, "disarmVehicleRequest", Qt::QueuedConnection)) {
+                    if (QMetaObject::invokeMethod(rootObj, "leafDisarmVehicleRequested", Qt::QueuedConnection)) {
                         invoked = true;
                     }
                 }
