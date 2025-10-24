@@ -9,10 +9,12 @@
 
 
 #include "Joystick.h"
+#include <QMessageBox>
 #include "QGC.h"
 #include "AutoPilotPlugin.h"
 #include "UAS.h"
 #include "QGCApplication.h"
+#include <QQuickWindow>
 #include "VideoManager.h"
 #include "QGCCameraManager.h"
 #include "QGCCameraControl.h"
@@ -895,8 +897,10 @@ void Joystick::startPolling(Vehicle* vehicle)
             connect(this, &Joystick::landingGearDeploy,  _activeVehicle, &Vehicle::landingGearDeploy);
             connect(this, &Joystick::landingGearRetract, _activeVehicle, &Vehicle::landingGearRetract);
             // Leaf-specific and camera stream controls
-            connect(this, &Joystick::leafIdle,               _activeVehicle, &Vehicle::leafArmFC);
-            connect(this, &Joystick::leafDisarm,             _activeVehicle, &Vehicle::leafDisarmFC);
+            // Note: leafIdle/leafDisarm require user confirmation. Do not
+            // connect the signals directly to vehicle methods here. Instead
+            // the request slots will present a confirmation UI and call the
+            // vehicle methods on the main thread if confirmed.
             connect(this, &Joystick::holdCameraStream,     this, &Joystick::_videoPause);
             connect(this, &Joystick::continueCameraStream, this, &Joystick::_videoResume);
             connect(this, &Joystick::toggleCameraStream, this, &Joystick::_toggleVideoPaused);
@@ -926,8 +930,6 @@ void Joystick::stopPolling(void)
             disconnect(this, &Joystick::landingGearDeploy,  _activeVehicle, &Vehicle::landingGearDeploy);
             disconnect(this, &Joystick::landingGearRetract, _activeVehicle, &Vehicle::landingGearRetract);
             // Leaf-specific and camera stream controls
-            disconnect(this, &Joystick::leafIdle,               _activeVehicle, &Vehicle::leafArmFC);
-            disconnect(this, &Joystick::leafDisarm,             _activeVehicle, &Vehicle::leafDisarmFC);
             disconnect(this, &Joystick::holdCameraStream,     this, &Joystick::_videoPause);
             disconnect(this, &Joystick::continueCameraStream, this, &Joystick::_videoResume);
             disconnect(this, &Joystick::toggleCameraStream,   this, &Joystick::_toggleVideoPaused);
@@ -969,6 +971,90 @@ void Joystick::_toggleVideoPaused()
         qgcApp()->toolbox()->videoManager()->toggleVideoPaused();
     }
 
+}
+
+void Joystick::_requestLeafIdle()
+{
+    // Schedule invocation on the main (UI) thread. Prefer using the existing
+    // guided controller QML confirmAction so the same popup/slider UI is used
+    // as when clicking the GUI buttons. If the guided controller cannot be
+    // found, fall back to a simple QMessageBox confirmation.
+    QMetaObject::invokeMethod(qgcApp(), [this]() {
+        bool invoked = false;
+        QQmlApplicationEngine* engine = qgcApp()->qmlAppEngine();
+        if (engine) {
+            const auto roots = engine->rootObjects();
+            if (!roots.isEmpty()) {
+                QObject* rootObj = roots.first();
+                if (rootObj) {
+                    // Prefer invoking the guided controller directly so we get the
+                    // exact same FC Arm/Idle confirmation UI used by the GUI.
+                    QVariant guidedVar = rootObj->property("guidedControllerFlyView");
+                    QObject* guidedObj = guidedVar.isValid() ? guidedVar.value<QObject*>() : nullptr;
+                    if (guidedObj) {
+                        QVariant actionIdVar = guidedObj->property("actionFCArm");
+                        if (actionIdVar.isValid()) {
+                            QMetaObject::invokeMethod(guidedObj,
+                                                      "confirmAction",
+                                                      Qt::QueuedConnection,
+                                                      Q_ARG(int, actionIdVar.toInt()));
+                            invoked = true;
+                        }
+                    }
+
+                    // If guidedController isn't available or didn't handle it,
+                    // fall back to emitting the main window armVehicleRequest
+                    if (!invoked) {
+                        if (QMetaObject::invokeMethod(rootObj, "armVehicleRequest", Qt::QueuedConnection)) {
+                            invoked = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (!invoked) {
+            // Fallback to a simple message box confirmation
+            QMessageBox::StandardButton res = QMessageBox::question(nullptr,
+                tr("Confirm LEAF Idle"),
+                tr("Are you sure you want to put the LEAF into Idle state?"),
+                QMessageBox::Yes | QMessageBox::No);
+            if (res == QMessageBox::Yes) {
+                if (_activeVehicle) {
+                    _activeVehicle->leafArmFC();
+                }
+            }
+        }
+    }, Qt::QueuedConnection);
+}
+
+void Joystick::_requestLeafDisarm()
+{
+    QMetaObject::invokeMethod(qgcApp(), [this]() {
+        bool invoked = false;
+        QQmlApplicationEngine* engine = qgcApp()->qmlAppEngine();
+        if (engine) {
+            const auto roots = engine->rootObjects();
+            if (!roots.isEmpty()) {
+                QObject* rootObj = roots.first();
+                if (rootObj) {
+                    if (QMetaObject::invokeMethod(rootObj, "disarmVehicleRequest", Qt::QueuedConnection)) {
+                        invoked = true;
+                    }
+                }
+            }
+        }
+        if (!invoked) {
+            QMessageBox::StandardButton res = QMessageBox::question(nullptr,
+                tr("Confirm LEAF Disarm"),
+                tr("Are you sure you want to disarm the LEAF (motors will stop)?"),
+                QMessageBox::Yes | QMessageBox::No);
+            if (res == QMessageBox::Yes) {
+                if (_activeVehicle) {
+                    _activeVehicle->leafDisarmFC();
+                }
+            }
+        }
+    }, Qt::QueuedConnection);
 }
 
 Joystick::Calibration_t Joystick::getCalibration(int axis)
@@ -1446,9 +1532,9 @@ void Joystick::_executeButtonAction(const QString& action, bool buttonDown)
     }
     // LEAF and Camera stream actions
     else if(action == _buttonActionLeafIdle) {
-        if (buttonDown) emit leafIdle();
+        if (buttonDown) _requestLeafIdle();
     } else if(action == _buttonActionLeafDisarm) {
-        if (buttonDown) emit leafDisarm();
+        if (buttonDown) _requestLeafDisarm();
     } else if(action == _buttonActionHoldCameraStream) {
         if (buttonDown) emit holdCameraStream();
     } else if(action == _buttonActionContinueCameraStream) {

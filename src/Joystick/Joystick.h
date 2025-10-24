@@ -414,6 +414,12 @@ private:
     static const char* _buttonActionToggleCameraStream;
 
 private slots:
+    // Confirmation request slots for dangerous LEAF actions. These will schedule a
+    // confirmation dialog on the main (GUI) thread and only perform the action
+    // if the user confirms.
+    void _requestLeafIdle();
+    void _requestLeafDisarm();
+
     void _activeVehicleChanged(Vehicle* activeVehicle);
     void _vehicleCountChanged(int count);
     void _flightModesChanged();
